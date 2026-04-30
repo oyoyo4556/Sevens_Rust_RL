@@ -1,5 +1,41 @@
 # Sevens_Rust_RL
 
-トランプゲームの７並べ(Sevens)のRL環境です。
+Rustで実装された、７並べ(Sevens)の強化学習プロジェクトです。ゲーム環境からニューラルネットワークの学習まで、外部ランタイム(Python等)に依存せず、100%Rustで完結しています。
 
-candleを使用し、全てRustで実装されています。
+## ⚡Highlights
+
+・Pure Rust Implementation:ゲームロジックから学習ループまで全てRustで記述。
+
+・High Performance: Google ColabのCPU環境において、RandomAgent対戦で 10000 game/secを超えるスループットを確認。
+
+・Lightweight ML: Hugging Face製の機械学習フレームワークcandleを採用している。
+
+## ♣　Sevens rule　♠
+
+・基本ルール：7を中心として隣接する数字を場に出し、先に手札を0にした順番で順位が決定する
+
+・パス回数：３回まで可能。４回目のパスは出せるカードが無い時にのみ可能。４回目のパスをしたプレイヤーは即座にドボン。
+
+・ドボン者のカードは公開情報となるが、場に繋がる数字までしか場には出されない（ドボン者が出てもゲーム続行）
+
+・ドボンした順番で最下位から埋まる
+
+・配られたカードの中にダイヤの７があった人が一番手となり、自分->下家->対面->上家->自分となる。また、全てのスートの7は開始時に場に自動で出される。
+
+・全員があがるかドボンになった時点でゲーム終了
+
+## 　Teck Stack
+
+・Language: Rust
+
+・ML Framework: candle "0.10.2" (by Hugging Face)
+
+・RL Algorithm: Dueling DDQN / n-step RL
+
+## 📜　Detail
+
+・lr-schedulerはCosineAnnealingWarmRestartsを実装しています
+
+・unwrap()とexpect()について：コード内ではunwrap()とexpect()が使用されていますが、そこでエラーが出た場合は学習継続困難なため止めたほうが良く、複雑なエラーハンドリングを避けています。しかし、20万戦ほど回しても一度もexpect()を呼び出されていないため、安全は確認しております。
+
+・ProcessorでRawStateをNNに入れる値に変換し、一括でTensorにしています。そのため、特徴量を変えたい場合は、Processorのwrite_buf()をいじってください。
