@@ -8,7 +8,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let agent_id = 0;
     //let main_agent = RandomAgent::new();//デバッグ用
     let mut main_agent = MainAgent::new(100, 1);
-    main_agent.load("checkpoints/dqn_v1.2.1_ep12000.safetensors").expect("Failed to load model.check the path!");
+    main_agent.load("checkpoints/dqn_v1.2.1_cycle3.safetensors").expect("Failed to load model.check the path!");
     main_agent.epsilon = 0.0; // 決定論的な行動を選択
 
     let opponent = Opponent::Random(RandomAgent::new());

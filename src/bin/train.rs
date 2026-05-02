@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::Path;
 use sevens::env::{SevensEnv};
-use sevens::agent::{MainAgent,Opponent};
+use sevens::agent::{MainAgent,RandomAgent,Opponent};
 use sevens::trainer::Trainer;
 
 fn main(){
@@ -12,19 +12,19 @@ fn main(){
     }
 
     let eta_max = 1e-4;
-    let eta_min = 1e-5;
-    let t_0 = 20000;
+    let eta_min = 5e-6;
+    let t_0 = 25000;
     let t_mult = 2;
 
     let batch_size = 64;
-    let tau = 1.0;
+    let tau = 0.005;
     let save_interval = 5000;
     let num_episodes = 100_000;
-    let agent_name = "dqn_v1.2.1".to_string();
+    let agent_name = "dqn_v1.3.1".to_string();
 
-    let opponent = Opponent::Main(MainAgent::new(100,1));
+    let opponent = Opponent::Random(RandomAgent::new());
     let mut env = SevensEnv::new(4,0,opponent);
-    let mut agent = MainAgent::new(100_000,1);
+    let mut agent = MainAgent::new(100_000,3);
     let mut trainer = Trainer::new(
         eta_max,
         eta_min,
@@ -37,7 +37,7 @@ fn main(){
         agent_name,
     );
 
-    agent.load("checkpoints/dqn_v1.2.1_ep12000.safetensors").expect("Failed to load model.check the path!");
+    agent.load("checkpoints/dqn_v1.3.0_cycle3.safetensors").expect("Failed to load model.check the path!");
 
     println!("========================================================");
     println!("Starting training for {} episodes",num_episodes);

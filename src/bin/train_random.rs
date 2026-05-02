@@ -20,11 +20,11 @@ fn main(){
     let tau = 1.0;
     let save_interval = 4000;
     let num_episodes = 100_000;
-    let agent_name = "dqn_v1.2.1".to_string();
+    let agent_name = "dqn_v1.3.0".to_string();
 
     let opponent = Opponent::Random(RandomAgent::new());
     let mut env = SevensEnv::new(4,0,opponent);
-    let mut agent = MainAgent::new(100_000,1);
+    let mut agent = MainAgent::new(100_000,3);
     let mut trainer = Trainer::new(
         eta_max,
         eta_min,
@@ -48,7 +48,7 @@ fn main(){
     trainer.train_random(&mut agent,&mut env,num_episodes).unwrap();
 
     let final_model_path = format!("{}/final_model.safetensors",trainer.save_dir);
-    agent.save(&final_model_path).unwrap();
+    agent.save(&final_model_path).unwrap();//ここで失敗するなら学習時点で失敗する
     println!("========================================================");
     println!("Training completed. Final model Savedto :{}",final_model_path);
     println!("========================================================");

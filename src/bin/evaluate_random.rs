@@ -19,8 +19,8 @@ fn main(){
     let batch_size = 64;
     let tau = 1.0;
     let save_interval = 3000;
-    let num_episodes = 10000;
-    let agent_name = "dqn_v1.2.0".to_string();
+    let num_episodes = 30000;
+    let agent_name = "dqn_v1.3.0".to_string();
 
     let opponent = Opponent::Random(RandomAgent::new());
     let mut env = SevensEnv::new(4,0,opponent);
@@ -37,7 +37,7 @@ fn main(){
         agent_name,
     );
 
-    agent.load("checkpoints/dqn_v1.2.1_cycle3.safetensors").expect("Failed to load model.check the path!");
+    agent.load("checkpoints/dqn_v1.3.0_cycle3.safetensors").expect("Failed to load model.check the path!");
     agent.epsilon = 0.0;
 
     trainer.vs_random(&mut agent,&mut env,num_episodes).unwrap();
