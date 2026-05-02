@@ -9,3 +9,4 @@ pub struct Experience {
 }
 
 pub const TRAIN_AGENT_ID:usize = 0;
+pub const INPUT_STATE_DIM:usize = 233;

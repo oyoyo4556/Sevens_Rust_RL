@@ -107,13 +107,15 @@ impl SevensEnv {
 
         let event = self.apply_action(player,action);
 
-        if event.dobon {reward -= 0.5;}
+        if event.dobon {reward -= 0.1;}
         
         let done = self.check_done();
         if done {
             let rewards = self.compute_reward_vector();
             reward += rewards[player];
-            return (self.get_raw_state(),reward,true);
+            let mut final_state = self.get_raw_state();
+            final_state.legal_actions_mask.fill(0.0);
+            return (final_state,reward,true);
         }
 
         self.advance_player();
@@ -123,10 +125,14 @@ impl SevensEnv {
             if self.check_done() {
                 let rewards = self.compute_reward_vector();
                 reward += rewards[self.agent_id];
-                return (self.get_raw_state(),reward,true);
+                let mut final_state = self.get_raw_state();
+                final_state.legal_actions_mask.fill(0.0);
+                return (final_state,reward,true);
             }
-            self.opponent_turn().expect("Opponent failed during step");
+            reward += self.opponent_turn().expect("Opponent failed during step");
         }
+
+        
 
         return (self.get_raw_state(),reward,false);
 
@@ -146,7 +152,11 @@ impl SevensEnv {
             self.state.action_log[player] = (action as f32 + 1.0) /53.0;
 
             if self.state.pass_counts[player] >= 4 {
+                if player == self.agent_id {
                 event.dobon = true;
+                } else {
+                    event.make_opp_dobon = true;
+                }
                 self.dobon(player);
             }
         }
@@ -221,15 +231,19 @@ impl SevensEnv {
 
     }
 
-    pub fn opponent_turn(&mut self) -> Result<(),String> {
+    pub fn opponent_turn(&mut self) -> Result<f32,String> {
+        let mut reward = 0.0;
         let player = self.state.current_player;
 
         let action = self.opponent.select_action(&self.state,&player)?;
 
-        self.apply_action(player, action);
+        let event = self.apply_action(player, action);
+        if event.make_opp_dobon {reward += 0.05;}
         self.advance_player();
 
-        Ok(())
+        
+
+        Ok(reward)
         
     }
 
@@ -268,7 +282,7 @@ impl SevensEnv {
             return rewards;
         }
         
-        let values = [1.5,0.5,-0.5,-1.5];
+        let values = [1.0,0.3,-0.3,-1.0];
         let mut full_order = self.state.finished_order.clone();
         let mut el = self.state.eliminated.clone();
 
@@ -292,4 +306,5 @@ impl SevensEnv {
 #[derive(Default)]
 pub struct ActionEvent {
     dobon:bool,
+    make_opp_dobon:bool,
 }

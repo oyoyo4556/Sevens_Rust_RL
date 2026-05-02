@@ -8,7 +8,7 @@ use std::collections::VecDeque;
 use crate::qnet::DuelingQNet;
 use crate::buffer::ReplayBuffer;
 use crate::processor::Processor;
-use crate::common::{Experience, TRAIN_AGENT_ID};
+use crate::common::{Experience, TRAIN_AGENT_ID,INPUT_STATE_DIM};
 
 
 pub struct RandomAgent {
@@ -88,8 +88,8 @@ impl MainAgent {
         let varmap = VarMap::new();
         let vb = VarBuilder::from_varmap(&varmap,
         candle_core::DType::F32,&device);
-        let policy_net = DuelingQNet::new(233,512,53,vb.pp("policy")).unwrap();
-        let target_net = DuelingQNet::new(233,512,53,vb.pp("target")).unwrap();
+        let policy_net = DuelingQNet::new(INPUT_STATE_DIM,512,53,vb.pp("policy")).unwrap();
+        let target_net = DuelingQNet::new(INPUT_STATE_DIM,512,53,vb.pp("target")).unwrap();
 
         let my_params = ParamsAdamW{
             lr:5e-5,
@@ -134,8 +134,9 @@ impl MainAgent {
 
         self.processor.write_buf(&mut buf,state,*player_id,4); //player_id:0,num_players:4
 
-        let state_tensor = Tensor::from_slice(&buf,(1,233),&self.device)?;
-        let q_values = self.policy_net.forward(&state_tensor)?;
+        let state_tensor = Tensor::from_slice(&buf,(1,INPUT_STATE_DIM),&self.device)?;
+        let mask_tensor = Tensor::from_slice(&state.legal_actions_mask,(1,53),&self.device)?;
+        let q_values = self.policy_net.forward(&state_tensor,&mask_tensor)?;
 
         let q_vec = q_values.flatten_all()?.to_vec1::<f32>()?;
         let mut max_q = f32::NEG_INFINITY;
@@ -194,22 +195,20 @@ impl MainAgent {
         }
 
         let batch = self.buffer.sample(batch_size) ;
-        let (states_t,next_states_t,next_masks_t,actions_t,rewards_t,dones_t,next_gammas_t) 
+        let (states_t,next_states_t,masks_t,next_masks_t,actions_t,rewards_t,dones_t,next_gammas_t) 
         = self.processor.batch_to_tensors(&batch, &self.device, TRAIN_AGENT_ID, 4)?;//player_id:0,num_players:4
 
         let actions_t =actions_t.to_dtype(candle_core::DType::U32)?; //gatherするため
-        let q_values = self.policy_net.forward(&states_t)?;
+        let q_values = self.policy_net.forward(&states_t,&masks_t)?;
         let current_q = q_values.gather(&actions_t.unsqueeze(1)?,1)?.squeeze(1)?;
 
-        let next_q_policy = self.policy_net.forward(&next_states_t)?;
+        let next_q_policy = self.policy_net.forward(&next_states_t,&next_masks_t)?;
 
-        let ones = next_masks_t.ones_like()?;
-        let inv_mask = ones.sub(&next_masks_t)?;
-        let neg_inf_t = inv_mask.affine(-1e9f64,0.0)?;        
-        let masked_next_q = next_q_policy.broadcast_mul(&next_masks_t)?.add(&neg_inf_t)?;
+        let neg_inf_t = next_masks_t.affine(-1.0,1.0)?.affine(-1e9f64,0.0)?;    
+        let masked_next_q = next_q_policy.add(&neg_inf_t)?;
         let next_actions = masked_next_q.argmax(1)?;
 
-        let next_q_values = self.target_net.forward(&next_states_t)?;
+        let next_q_values = self.target_net.forward(&next_states_t,&next_masks_t)?;
         let max_next_q = next_q_values.gather(&next_actions.unsqueeze(1)?,1)?.squeeze(1)?;
         let max_next_q = max_next_q.detach();
 
