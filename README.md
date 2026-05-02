@@ -40,15 +40,22 @@ Rustで実装された、７並べ(Sevens)の強化学習プロジェクトで�
 
 ・ProcessorでRawStateをNNに入れる値に変換し、一括でTensorにしています。そのため、特徴量を変えたい場合は、Processorのwrite_buf()をいじってください。
 
-## dqn_ver1.2.1
+## 結果
 
-<img src="pngfolder/dqn_v1.2.1.png" width="500">
+<img src="pngfolder/dqn_v1.2.1.png" width="400">
 
->図:random3体に対する勝率
+>図:random3体に対する勝率(dqn_v1.2.1)
 
 ランダム相手ではあるが、出せるカードがあるなら自滅できないルールのため、それなりの勝率です。
 
 正常に学習ができていることが確認できます
+
+<img src="pngfolder/dqn_v1.3.0.png" width="400">
+
+>図:maskの扱いを変更しqnetにbuffer_layerを入れた後(dqn_v1.3.0)
+
+v1.3.0では、平均着順は変わらないものの、２着率が上昇。次はラス率を下げつつトップを取る方法を工夫して教えたい
+
 
 ## ToDo
 
