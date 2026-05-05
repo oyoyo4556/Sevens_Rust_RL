@@ -1,6 +1,6 @@
 use sevens::card::Card;
 use sevens::env::{SevensEnv,PASS_ACTION};
-use sevens::agent::{MainAgent, RandomAgent, Opponent};
+use sevens::agent::agent::{MainAgent, RandomAgent, Opponent};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // --- 初期設定 ---

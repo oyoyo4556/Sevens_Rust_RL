@@ -1,8 +1,9 @@
 use std::fs;
 use std::path::Path;
 use sevens::env::{SevensEnv};
-use sevens::agent::agent::{MainAgent,RandomAgent,Opponent};
+use sevens::agent::agent::{Opponent, RandomAgent};
 use sevens::trainer::Trainer;
+use sevens::agent::per_agent::PERDQNAgent;
 
 fn main(){
     let save_dir ="checkpoints".to_string();
@@ -13,18 +14,21 @@ fn main(){
 
     let eta_max = 1e-4;
     let eta_min = 1e-5;
-    let t_0 = 20000;
+    let t_0 = 25000;
     let t_mult = 2;
 
     let batch_size = 64;
     let tau = 0.005;
-    let save_interval = 4000;
+    let save_interval = 5000;
     let num_episodes = 100_000;
-    let agent_name = "dqn_v1.3.0".to_string();
+    let agent_name = "perdqn_v1.0.0".to_string();
 
-    let opponent = Opponent::Random(RandomAgent::new());
+    let mut agent = PERDQNAgent::new(100_000,3);
+    let opp_agent = RandomAgent::new();
+    //agent.copy_weights_to(&mut opp_agent).expect("failed copy_weight to opponent!");
+    //opp_agent.epsilon = 0.0;
+    let opponent = Opponent::Random(opp_agent);
     let mut env = SevensEnv::new(4,0,opponent);
-    let mut agent = MainAgent::new(100_000,3);
     let mut trainer = Trainer::new(
         eta_max,
         eta_min,
@@ -37,7 +41,7 @@ fn main(){
         agent_name,
     );
 
-    //agent.load("checkpoints/dqn_v1.2.1_ep5000.safetensors").expect("Failed to load model.check the path!");
+    agent.load("checkpoints/perdqn_v1.0.0_ep5000.safetensors").expect("Failed to load model.check the path!");
 
     println!("========================================================");
     println!("Starting training for {} episodes",num_episodes);
@@ -45,10 +49,10 @@ fn main(){
     println!("Agent Name:{}",&trainer.agent_name);
     println!("=========================================================");
 
-    trainer.train_random(&mut agent,&mut env,num_episodes).unwrap();
+    trainer.per_train(&mut agent,&mut env,num_episodes).unwrap();
 
     let final_model_path = format!("{}/final_model.safetensors",trainer.save_dir);
-    agent.save(&final_model_path).unwrap();//ここで失敗するなら学習時点で失敗する
+    agent.save(&final_model_path).unwrap();
     println!("========================================================");
     println!("Training completed. Final model Savedto :{}",final_model_path);
     println!("========================================================");

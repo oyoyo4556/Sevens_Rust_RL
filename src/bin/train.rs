@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::Path;
 use sevens::env::{SevensEnv};
-use sevens::agent::{MainAgent,RandomAgent,Opponent};
+use sevens::agent::agent::{MainAgent,Opponent};
 use sevens::trainer::Trainer;
 
 fn main(){
@@ -12,7 +12,7 @@ fn main(){
     }
 
     let eta_max = 1e-4;
-    let eta_min = 5e-6;
+    let eta_min = 1e-5;
     let t_0 = 25000;
     let t_mult = 2;
 
@@ -22,9 +22,12 @@ fn main(){
     let num_episodes = 100_000;
     let agent_name = "dqn_v1.3.1".to_string();
 
-    let opponent = Opponent::Random(RandomAgent::new());
-    let mut env = SevensEnv::new(4,0,opponent);
     let mut agent = MainAgent::new(100_000,3);
+    let mut opp_agent = MainAgent::new(100,1);
+    agent.copy_weights_to(&mut opp_agent).expect("failed copy_weight to opponent!");
+    opp_agent.epsilon = 0.0;
+    let opponent = Opponent::Main(opp_agent);
+    let mut env = SevensEnv::new(4,0,opponent);
     let mut trainer = Trainer::new(
         eta_max,
         eta_min,

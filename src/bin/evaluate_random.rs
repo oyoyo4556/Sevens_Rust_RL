@@ -1,7 +1,8 @@
 use std::fs;
 use std::path::Path;
+use sevens::agent::per_agent::PERDQNAgent;
 use sevens::env::{SevensEnv};
-use sevens::agent::{MainAgent,RandomAgent,Opponent};
+use sevens::agent::agent::{RandomAgent,Opponent};
 use sevens::trainer::Trainer;
 
 fn main(){
@@ -19,12 +20,12 @@ fn main(){
     let batch_size = 64;
     let tau = 1.0;
     let save_interval = 3000;
-    let num_episodes = 30000;
-    let agent_name = "dqn_v1.3.0".to_string();
+    let num_episodes = 10000;
+    let agent_name = "perdqn_v1.0.0".to_string();
 
     let opponent = Opponent::Random(RandomAgent::new());
     let mut env = SevensEnv::new(4,0,opponent);
-    let mut agent = MainAgent::new(100_000,3);
+    let mut agent = PERDQNAgent::new(100_000,3);
     let mut trainer = Trainer::new(
         eta_max,
         eta_min,
@@ -37,9 +38,9 @@ fn main(){
         agent_name,
     );
 
-    agent.load("checkpoints/dqn_v1.3.0_cycle3.safetensors").expect("Failed to load model.check the path!");
+    agent.load("checkpoints/perdqn_v1.0.0_ep10000.safetensors").expect("Failed to load model.check the path!");
     agent.epsilon = 0.0;
 
-    trainer.vs_random(&mut agent,&mut env,num_episodes).unwrap();
+    trainer.per_vs_random(&mut agent,&mut env,num_episodes).unwrap();
 }
 
