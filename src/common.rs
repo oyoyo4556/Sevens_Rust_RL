@@ -1,4 +1,6 @@
 use crate::env::RawState;
+
+#[derive(Clone)]
 pub struct Experience {
     pub state:RawState,
     pub action:u8,

@@ -67,6 +67,14 @@ impl Processor {
 
     }
 
+    pub fn is_weight_to_tensors(&self,is_weight:Vec<f32>,device:&Device) -> Result<Tensor> {
+        let batch_size = is_weight.len();
+        let is_weight_t = Tensor::from_vec(is_weight,batch_size,&device)?;
+
+        Ok(is_weight_t)
+    }
+
+
     pub fn write_buf(&self,obs:&mut Vec<f32>,state:&RawState,player_id:usize,num_players:usize) {
 
         //場[52]

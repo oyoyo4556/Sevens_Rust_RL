@@ -1,5 +1,5 @@
 use crate::card::Card;
-use crate::agent::{Opponent,Agent};
+use crate::agent::agent::{Opponent,Agent};
 use rand::seq::SliceRandom;
 use serde::{Serialize,Deserialize};
 
