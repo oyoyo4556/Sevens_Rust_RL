@@ -56,7 +56,7 @@ Rustで実装された、７並べ(Sevens)の強化学習プロジェクトで�
 
 v1.3.0では、平均着順は変わらないものの、２着率が上昇。次はラス率を下げつつトップを取る方法を工夫して教えたい
 
-<img src="pngfolder/perdqnv1.0.0.png" width="400">
+<img src="pngfolder/perdqn_v1.0.0.png" width="400">
 
 >図:per実装後の勝率上昇
 
