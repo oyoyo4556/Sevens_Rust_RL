@@ -6,7 +6,7 @@ Rustで実装された、７並べ(Sevens)の強化学習プロジェクトで�
 
 ・Pure Rust Implementation:ゲームロジックから学習ループまで全てRustで記述。
 
-・High Performance: Google ColabのCPU環境において、RandomAgent対戦で 10000 game/secを超えるスループットを確認。
+・High Performance: Google ColabのCPU環境において、RandomAgent対戦で 10000 game/secを超えるスループットを確認。(dqn_v1.4.0では100,000戦の学習が2時間で完了)
 
 ・Lightweight ML: Hugging Face製の機械学習フレームワークcandleを採用している。
 
@@ -62,13 +62,19 @@ v1.3.0では、平均着順は変わらないものの、２着率が上昇。�
 
 PERにより３着率が下がり、1着と2着が増えているのがわかる。PERの実装に成功した
 
+<img src="pngfolder/dqn_v1.4.0.png" width="400">
+
+>図:モデルの軽量化と更新頻度の見直し後
+
+学習を高速化したいため、residualblockを減らし、更新頻度も減らしたら結果的に強くなった。
+
+おそらく、以前は表現力がありすぎたため過学習を起こしていたと思われる
+
 
 ## ToDo
 
-・並列化/SIMD化
+・~~ゲームの並列化~~　-> batchを組むための待ち時間の方がもったいない気がするので一旦保留します。dqn_v1.4.0では学習しながらでも、シングルスレッドで10万戦が2時間で終わります
 
-・bitboard
+・Attentionに対応するためのseqを作るメソッド -> attentionは表現力高すぎて過学習してしまうかも
 
-・Attentionに対応するためのseqを作るメソッド
-
-・さらなる最適化
+・DQNの拡張で後悔最小化する方法を思いついたので、そのうち実装。
