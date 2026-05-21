@@ -30,8 +30,7 @@ impl ResidualBlock {
 
 pub struct DuelingQNet{
     input_layer:Linear,
-    res1:ResidualBlock,
-    res2:ResidualBlock,
+    res:ResidualBlock,
     final_ln:LayerNorm,
     buffer_layer:Linear,
     value:Linear,
@@ -44,21 +43,19 @@ impl DuelingQNet{
         let hidden2_dim = if hidden_dim % 2 == 0 {hidden_dim / 2} else {(hidden_dim + 1 )/2};
 
         let input_layer = linear(state_dim,hidden_dim,vb.pp("input_layer"))?;
-        let res1 = ResidualBlock::new(hidden_dim,vb.pp("res1"))?;
-        let res2 = ResidualBlock::new(hidden_dim,vb.pp("res2"))?;
+        let res = ResidualBlock::new(hidden_dim,vb.pp("res"))?;
         let final_ln = candle_nn::layer_norm(hidden_dim,candle_nn::LayerNormConfig::default(),vb.pp("final_ln"))?;
         let buffer_layer = linear(hidden_dim,hidden2_dim,vb.pp("buffer_layer"))?;
         let value = linear(hidden2_dim,1,vb.pp("value"))?;
         let advantage = linear(hidden2_dim,action_dim,vb.pp("advantage"))?;
 
-        Ok(Self {input_layer,res1,res2,final_ln,buffer_layer,value,advantage})
+        Ok(Self {input_layer,res,final_ln,buffer_layer,value,advantage})
     }
 
     pub fn forward(&self,x:&Tensor,mask:&Tensor) -> Result<Tensor> {
         let mut x = self.input_layer.forward(x)?;
         x = x.relu()?;
-        x = self.res1.forward(&x)?;
-        x = self.res2.forward(&x)?;
+        x = self.res.forward(&x)?;
         x = self.final_ln.forward(&x)?;
         x = self.buffer_layer.forward(&x)?;
         x = x.relu()?;
