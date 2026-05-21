@@ -1,4 +1,6 @@
 
+use crate::agent::per_agent::PERDQNAgent;
+use crate::agent::drn_agent::DRNAgent;
 use crate::env::{RawState};
 use rand::seq::IndexedRandom;
 use std::cell::RefCell;
@@ -32,7 +34,9 @@ pub struct MainAgent {
 
 pub enum Opponent {
     Random(RandomAgent),
-    Main(MainAgent)
+    Main(MainAgent),
+    PER(PERDQNAgent),
+    DRN(DRNAgent),
 }
 
 pub type AgentResult<T> = std::result::Result<T,String>;
@@ -45,6 +49,8 @@ impl Agent for Opponent {
         match self{
             Opponent::Random(a) => a.select_action(state,player_id),
             Opponent::Main(a) => a.select_action(state,player_id),
+            Opponent::PER(a) => a.select_action(state,player_id),
+            Opponent::DRN(a) => a.select_action(state,player_id),
         }
     }
 }
@@ -110,7 +116,7 @@ impl MainAgent {
             gamma: 0.99,
             epsilon: 0.8,
             epsilon_min: 0.01,
-            epsilon_decay: 0.99999,
+            epsilon_decay: 0.99995,
             n_step_buffer:VecDeque::with_capacity(n_step),
             n_step, 
             processor,
