@@ -78,6 +78,14 @@ impl PERDQNAgent {
 
         self.processor.write_buf(&mut buf,state,*player_id,4); //player_id:0,num_players:4
 
+        let required_elements = INPUT_STATE_DIM;
+
+        assert_eq!(
+            buf.len(), required_elements, "【致命的バグ防止】bufの要素数 ({}) が、要求されたTensorのサイズ ({}) と一致しません！", 
+            buf.len(), 
+            required_elements
+        );
+
         let state_tensor = Tensor::from_slice(&buf,(1,INPUT_STATE_DIM),&self.device)?;
         let mask_tensor = Tensor::from_slice(&state.legal_actions_mask,(1,53),&self.device)?;
         let q_values = self.policy_net.forward(&state_tensor,&mask_tensor)?;
