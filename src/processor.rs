@@ -55,6 +55,29 @@ impl Processor {
             next_gammas_raw.push(exp.next_gamma);
         }
 
+        //candleのfrom_sliceバグを外側で安全性を確保
+        let required_elements = batch_size * INPUT_STATE_DIM;
+        let required_mask_elements = batch_size * 53; 
+
+        assert_eq!(
+            s_buf.len(), 
+            required_elements, 
+            "【致命的バグ防止】s_bufの要素数 ({}) が、要求されたTensorのサイズ ({}) と一致しません！", 
+            s_buf.len(), 
+            required_elements
+        );
+
+        assert_eq!(
+            ns_buf.len(), 
+            required_elements, 
+            "【致命的バグ防止】ns_bufの要素数({})が、要求されたTensorのサイズ({})と一致しません!",
+            ns_buf.len(),
+            required_elements
+        );
+
+        assert_eq!(m_buf.len(), required_mask_elements, "【致命的バグ防止】m_bufの要素数が一致しません!");
+        assert_eq!(nm_buf.len(), required_mask_elements, "【致命的バグ防止】nm_bufの要素数が一致しません!");
+
         let states = Tensor::from_slice(&s_buf,(batch_size,INPUT_STATE_DIM),device)?;
         let next_states = Tensor::from_slice(&ns_buf,(batch_size,INPUT_STATE_DIM),device)?;
         let masks = Tensor::from_slice(&m_buf,(batch_size,53),device)?;
