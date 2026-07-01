@@ -1,15 +1,16 @@
 use sevens::card::Card;
 use sevens::env::{SevensEnv,PASS_ACTION};
-use sevens::agent::agent::{MainAgent, RandomAgent, Opponent};
+use sevens::agent::agent::{RandomAgent, Opponent};
+use sevens::agent::drn_agent::DRNAgent;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // --- 初期設定 ---
     let num_players = 4;
     let agent_id = 0;
     //let main_agent = RandomAgent::new();//デバッグ用
-    let mut main_agent = MainAgent::new(100, 1);
-    main_agent.load("checkpoints/dqn_v1.4.0_ep95000.safetensors").expect("Failed to load model.check the path!");
-    main_agent.epsilon = 0.0; // 決定論的な行動を選択
+    let mut main_agent = DRNAgent::new(100, 1);
+    main_agent.load("checkpoints/drn_v1.0.0_ep90000.safetensors").expect("Failed to load model.check the path!");
+    main_agent.set_lambda(1.0); //Rのみ
 
     let opponent = Opponent::Random(RandomAgent::new());
     let mut env = SevensEnv::new(num_players, agent_id, opponent);
@@ -43,11 +44,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         display_legal_actions(&mask);
         
-        // 推論（自分か相手かに関わらず、ロジック上の選択を明示）
-        let action = main_agent.infer_q(&state,&env.agent_id)?;
-        
+        // 推論
+        let action = if current_p == env.agent_id {
+            // ========================================================
+            // ★【自分（AI）の手番】脳内を表示する
+            // ========================================================
+            main_agent.debug_print_values(&state,&current_p)?; // ← ここでQとRを可視化！
 
-        println!(">> 行動選択: 【 {} 】", format_action_visual(action));
+            let act = main_agent.infer_q(&state, &env.agent_id)?;
+            println!(">> 🤖 AI(あなた)の行動選択: 【 {} 】", format_action_visual(act));
+            act
+        } else {
+            // ========================================================
+            // 【相手の手番】環境内部の opponent_turn() で自動処理されるので、
+            // ここではダミーのPASSアクションを入れておく
+            // （直後の env.step(action) の裏で opponent_turn が自動で回ります）
+            // ========================================================
+            println!(">> 👤 相手の思考中...");
+            PASS_ACTION //　相手のターンは自動処理されるのでここには来ないはずだが、デバッグ用なのでとりあえずPASSをいれておく
+        };
+
 
         // 4. 環境の更新
         let (next_state, reward, done) = env.step(action);

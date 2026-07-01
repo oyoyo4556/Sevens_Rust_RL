@@ -55,7 +55,6 @@ impl Processor {
             next_gammas_raw.push(exp.next_gamma);
         }
 
-        //candleのfrom_sliceバグを外側で安全性を確保
         let required_elements = batch_size * INPUT_STATE_DIM;
         let required_mask_elements = batch_size * 53; 
 
