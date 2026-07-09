@@ -139,7 +139,7 @@ impl MainAgent {
         buf.clear();
 
         self.processor.write_buf(&mut buf,state,*player_id,4); //player_id:0,num_players:4
-        
+
         let required_elements = INPUT_STATE_DIM;
 
         assert_eq!(

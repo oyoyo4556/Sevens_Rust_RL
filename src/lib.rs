@@ -8,3 +8,4 @@ pub mod qnet;
 pub mod lr_scheduler;
 pub mod trainer;
 pub mod sumtree;
+pub mod rnet;

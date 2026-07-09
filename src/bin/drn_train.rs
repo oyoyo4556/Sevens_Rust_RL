@@ -1,8 +1,9 @@
 use std::fs;
 use std::path::Path;
 use sevens::env::{SevensEnv};
-use sevens::agent::agent::{RandomAgent,MainAgent,Opponent};
-use sevens::trainer::Trainer;
+use sevens::agent::agent::{RandomAgent,Opponent};
+use sevens::trainer::DRNTrainer;
+use sevens::agent::drn_agent::DRNAgent;
 
 fn main(){
     let save_dir ="checkpoints".to_string();
@@ -13,22 +14,22 @@ fn main(){
 
     let eta_max = 1e-4;
     let eta_min = 1e-5;
-    let t_0 = 6000;
-    let t_mult = 2;
+    let t_0 = 8000;
+    let t_mult = 1;
 
     let batch_size = 64;
     let tau = 0.005;
     let save_interval = 5000;
     let num_episodes = 100_000;
-    let agent_name = "dqn_v1.4.0".to_string();
+    let agent_name = "drn_v1.1.1".to_string();
 
-    let mut agent = MainAgent::new(100_000,3);
+    let mut agent = DRNAgent::new(100_000,1);//capacityを大きくし過ぎると解析用のbufferファイルが大きくなります
     let opp_agent = RandomAgent::new();
     //agent.copy_weights_to(&mut opp_agent).expect("failed copy_weight to opponent!");
     //opp_agent.epsilon = 0.0;
     let opponent = Opponent::Random(opp_agent);
     let mut env = SevensEnv::new(4,0,opponent);
-    let mut trainer = Trainer::new(
+    let mut trainer = DRNTrainer::new(
         eta_max,
         eta_min,
         t_0,
@@ -40,7 +41,7 @@ fn main(){
         agent_name,
     );
 
-    //agent.load("checkpoints/dqn_v1.3.0_cycle3.safetensors").expect("Failed to load model.check the path!");
+    //agent.load("checkpoints/drn_v1.0.0_ep10000.safetensors").expect("Failed to load model.check the path!");
 
     println!("========================================================");
     println!("Starting training for {} episodes",num_episodes);
