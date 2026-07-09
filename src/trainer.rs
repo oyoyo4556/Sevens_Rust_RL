@@ -477,16 +477,14 @@ impl DRNTrainer{
             if episode % 3000 == 0 {
                 if let Opponent::DRN(ref mut opp_agent) = env.opponent {
                     agent.copy_weights_to(opp_agent)?;
-                    let cycle =self.scheduler.get_cycle_index();
-                    let new_lambda = (cycle + 1) as f64 * 0.1;
-                    opp_agent.set_lambda(new_lambda);
+                    
+                    opp_agent.set_lambda(0.0);
                     println!("Opponent updated at episode {}",episode);
                 } else {
                     let mut new_opp_agent = DRNAgent::new(100,1);
                     agent.copy_weights_to(&mut new_opp_agent)?;
-                    let cycle =self.scheduler.get_cycle_index();
-                    let new_lambda = (cycle + 1) as f64 * 0.1;
-                    new_opp_agent.set_lambda(new_lambda);
+                    
+                    new_opp_agent.set_lambda(0.0);
                     env.opponent = Opponent::DRN(new_opp_agent);
                     println!("Opponent switched to new agent");
                 }

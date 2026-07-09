@@ -117,7 +117,7 @@ impl RNet{
         x = self.buffer_layer.forward(&x)?;
         x = x.relu()?;
         x = self.regret.forward(&x)?;
-        x = x.relu()?;
+        x = x.gelu()?;
 
         Ok(x)
     }

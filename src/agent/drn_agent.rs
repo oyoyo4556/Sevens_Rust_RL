@@ -90,7 +90,7 @@ impl DRNAgent {
             n_step_buffer:VecDeque::with_capacity(n_step),
             n_step, 
             lambda:0.0,
-            temp:1.0,
+            temp:0.01,
             processor,
             action_buffer:RefCell::new(Vec::with_capacity(53)),
             weights_buffer:RefCell::new(Vec::with_capacity(53)),
@@ -121,7 +121,7 @@ impl DRNAgent {
         let neg_inf_t = mask_tensor.affine(-1.0, 1.0)?.affine(-1e9f64, 0.0)?;
         let masked_combined = combined_values.add(&neg_inf_t)?;
 
-        // 4. 温度付きsoftmax。ここでは1.0
+        // 4. 温度付きsoftmax。
         let temperature = self.temp;
         let scaled_for_softmax = if temperature != 1.0 {
             masked_combined.affine(1.0 / temperature, 0.0)?
@@ -237,7 +237,7 @@ impl DRNAgent {
 
         if self.lambda > 0.0 {
 
-            //(A) 減税の予測後悔値R(s,a)の取得
+            //(A) 現在の予測後悔値R(s,a)の取得
             let r_values = self.regret_net.forward(&states_t)?;
             let current_r = r_values.gather(&actions_t.unsqueeze(1)?,1)?.squeeze(1)?;
 

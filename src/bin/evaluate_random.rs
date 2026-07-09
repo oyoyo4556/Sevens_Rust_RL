@@ -1,8 +1,9 @@
 use std::fs;
 use std::path::Path;
 use sevens::env::{SevensEnv};
-use sevens::agent::agent::{MainAgent,RandomAgent,Opponent};
-use sevens::trainer::Trainer;
+use sevens::agent::drn_agent::DRNAgent;
+use sevens::agent::agent::{RandomAgent,Opponent};
+use sevens::trainer::DRNTrainer;
 
 fn main(){
     let save_dir ="checkpoints".to_string();
@@ -20,12 +21,12 @@ fn main(){
     let tau = 1.0;
     let save_interval = 3000;
     let num_episodes = 10000;
-    let agent_name = "dqn_v1.4.0".to_string();
+    let agent_name = "drn_v1.1.1".to_string();
 
     let opponent = Opponent::Random(RandomAgent::new());
     let mut env = SevensEnv::new(4,0,opponent);
-    let mut agent = MainAgent::new(100_000,3);
-    let mut trainer = Trainer::new(
+    let mut agent = DRNAgent::new(100_000,3);
+    let mut trainer = DRNTrainer::new(
         eta_max,
         eta_min,
         t_0,
@@ -37,9 +38,9 @@ fn main(){
         agent_name,
     );
 
-    agent.load("checkpoints/dqn_v1.4.0_ep95000.safetensors").expect("Failed to load model.check the path!");
-    agent.epsilon = 0.0;
+    agent.load("checkpoints/drn_v1.1.1_ep100000.safetensors").expect("Failed to load model.check the path!");
+    agent.set_lambda(1.0);
 
-    trainer.vs_random(&mut agent,&mut env,num_episodes).unwrap();
+    trainer.drn_vs_random(&mut agent,&mut env,num_episodes).unwrap();
 }
 
