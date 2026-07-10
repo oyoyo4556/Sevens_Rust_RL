@@ -17,11 +17,11 @@ fn main(){
     let t_0 = 8000;
     let t_mult = 1;
 
-    let batch_size = 64;
+    let batch_size = 128;
     let tau = 0.005;
-    let save_interval = 5000;
+    let save_interval = 10000;
     let num_episodes = 100_000;
-    let agent_name = "drn_v1.1.1".to_string();
+    let agent_name = "drn_v1.1.2".to_string();
 
     let mut agent = DRNAgent::new(100_000,1);//capacityを大きくし過ぎると解析用のbufferファイルが大きくなります
     let opp_agent = RandomAgent::new();

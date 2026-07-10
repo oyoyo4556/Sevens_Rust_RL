@@ -25,7 +25,7 @@ pub struct DRNAgent {
     gamma:f32,
     n_step_buffer:VecDeque<(RawState,u8,f32,RawState,bool)>,
     n_step: usize,
-    lambda:f64,
+    pub lambda:f64,
     temp:f64,
     processor:Processor,
     action_buffer:RefCell<Vec<u8>>,
@@ -107,6 +107,24 @@ impl DRNAgent {
 
         let state_tensor = Tensor::from_slice(&buf, (1, INPUT_STATE_DIM), &self.device)?;
         let mask_tensor = Tensor::from_slice(&state.legal_actions_mask, (1, 53), &self.device)?;
+
+        if self.lambda == 0.0 {
+            let q_values = self.policy_net.forward(&state_tensor,&mask_tensor)?;
+            let q_vec = q_values.flatten_all()?.to_vec1::<f32>()?;
+            let mut max_q = f32::NEG_INFINITY;
+            let mut best_action = None;
+
+            for (i,(&q,&m)) in q_vec.iter().zip(state.legal_actions_mask.iter()).enumerate() {
+              if m == 1.0 {
+                  if q > max_q || best_action.is_none() {
+                      max_q = q;
+                      best_action = Some(i as u8);
+                    }
+                }
+            } 
+
+            return best_action.ok_or(candle_core::Error::Msg("No legal actions".to_string()));
+        }
         
         let q_values = self.policy_net.forward(&state_tensor, &mask_tensor)?;
         let reg_values = self.regret_net.forward(&state_tensor)?;

@@ -21,11 +21,24 @@ fn main(){
     let tau = 1.0;
     let save_interval = 3000;
     let num_episodes = 10000;
-    let agent_name = "drn_v1.1.1".to_string();
+    let agent_name = "drn_v1.1.2".to_string();
+
+    let mut agent = DRNAgent::new(100_000,3);
+    agent.load("checkpoints/drn_v1.1.2_ep100000.safetensors").expect("Failed to load model.check the path!");
+    agent.set_lambda(1.0);
 
     let opponent = Opponent::Random(RandomAgent::new());
+    //let mut opponent = DRNAgent::new(100,1);
+    //agent.copy_weights_to(&mut opponent).expect("failed copy_weight to opponent!");
+    //opponent.set_lambda(0.0);
+    //let opponent = Opponent::DRN(opponent);
     let mut env = SevensEnv::new(4,0,opponent);
-    let mut agent = DRNAgent::new(100_000,3);
+    println!("Agent lambda :{}",agent.lambda);
+    if let Opponent::DRN(ref mut opp_agent) = env.opponent  {
+        println!("Opponet is DRNAgent with lambda :{}",opp_agent.lambda);
+    } else {
+        println!("Opponent is RandomAgent");
+    }
     let mut trainer = DRNTrainer::new(
         eta_max,
         eta_min,
@@ -37,9 +50,6 @@ fn main(){
         save_interval,
         agent_name,
     );
-
-    agent.load("checkpoints/drn_v1.1.1_ep100000.safetensors").expect("Failed to load model.check the path!");
-    agent.set_lambda(1.0);
 
     trainer.drn_vs_random(&mut agent,&mut env,num_episodes).unwrap();
 }

@@ -474,7 +474,7 @@ impl DRNTrainer{
             }
 
             //対戦相手の更新
-            if episode % 3000 == 0 {
+            if episode % 3000 == 0 && episode >= 9000 {
                 if let Opponent::DRN(ref mut opp_agent) = env.opponent {
                     agent.copy_weights_to(opp_agent)?;
                     
