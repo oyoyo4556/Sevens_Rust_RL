@@ -500,7 +500,6 @@ impl DRNTrainer{
     pub fn drn_vs_random(&mut self,agent:&mut DRNAgent,env:&mut SevensEnv,num_episodes:usize) -> Result<()> {
         let mut agent_ranks = Vec::new();
         let mut rank_counts = vec![0;4];
-        env.opponent = Opponent::Random(RandomAgent::new());
         println!("=============================================================");
         println!("Starting evaluation vs RandomAgent for {} episodes",num_episodes);
         println!("=============================================================");
