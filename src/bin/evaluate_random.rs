@@ -2,7 +2,7 @@ use std::fs;
 use std::path::Path;
 use sevens::env::{SevensEnv};
 use sevens::agent::drn_agent::DRNAgent;
-use sevens::agent::agent::{RandomAgent,Opponent};
+use sevens::agent::agent::{Opponent};
 use sevens::trainer::DRNTrainer;
 
 fn main(){
@@ -21,17 +21,19 @@ fn main(){
     let tau = 1.0;
     let save_interval = 3000;
     let num_episodes = 10000;
-    let agent_name = "drn_v1.1.2".to_string();
+    let agent_name = "drn_v1.2.0".to_string();
 
     let mut agent = DRNAgent::new(100_000,3);
-    agent.load("checkpoints/drn_v1.1.2_ep100000.safetensors").expect("Failed to load model.check the path!");
+    agent.load("checkpoints/drn_v1.2.0_ep160000.safetensors").expect("Failed to load model.check the path!");
     agent.set_lambda(1.0);
+    agent.epsilon = 0.0;
 
-    let opponent = Opponent::Random(RandomAgent::new());
-    //let mut opponent = DRNAgent::new(100,1);
-    //agent.copy_weights_to(&mut opponent).expect("failed copy_weight to opponent!");
-    //opponent.set_lambda(0.0);
-    //let opponent = Opponent::DRN(opponent);
+    //let opponent = Opponent::Random(RandomAgent::new());
+    let mut opponent = DRNAgent::new(100,1);
+    agent.copy_weights_to(&mut opponent).expect("failed copy_weight to opponent!");
+    opponent.set_lambda(0.0);
+    opponent.epsilon = 0.0;
+    let opponent = Opponent::DRN(opponent);
     let mut env = SevensEnv::new(4,0,opponent);
     println!("Agent lambda :{}",agent.lambda);
     if let Opponent::DRN(ref mut opp_agent) = env.opponent  {

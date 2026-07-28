@@ -384,7 +384,7 @@ impl DRNTrainer{
         }
     }
 
-    pub fn train_step(&mut self,agent:&mut DRNAgent) -> Result<(f32,f32)> {
+    pub fn train_step(&mut self,agent:&mut DRNAgent) -> Result<(f32,f32,f32)> {
         self.scheduler.step();
         let current_lr = self.scheduler.get_lr();
         agent.set_qnet_learning_rate(current_lr);
@@ -396,19 +396,20 @@ impl DRNTrainer{
             println!("Model saved at cycle {}",cycle);
             let new_lambda = (cycle + 1) as f64 * 0.1;
             agent.set_lambda(new_lambda); // lambdaの更新は簡易的に谷で切り替えることにする。set_lambdaでmin(1.0)にしているため1は超えない
-            println!("Set new lambda to {:.4}",new_lambda)
+            println!("Set new lambda to {:.4}", &agent.lambda);
         }
 
-        let (q_loss,r_loss) = agent.update(self.batch_size)?;
+        let (q_loss,r_loss,kl_loss) = agent.update(self.batch_size)?;
         agent.update_target_network(self.tau)?;
         agent.update_target_regret_network(self.tau)?;
-        Ok((q_loss,r_loss))
+        Ok((q_loss,r_loss,kl_loss))
     }
 
-    pub fn run_episode(&mut self,agent:&mut DRNAgent,env:&mut SevensEnv) -> Result<(f32,f32,f32)> {
+    pub fn run_episode(&mut self,agent:&mut DRNAgent,env:&mut SevensEnv) -> Result<(f32,f32,f32,f32)> {
         let mut state = env.reset();
         let mut total_q_loss = 0.0;
         let mut total_r_loss = 0.0;
+        let mut total_kl_loss = 0.0;
         let mut steps = 0;
         let mut done = false;
         let mut total_reward = 0.0;
@@ -431,14 +432,15 @@ impl DRNTrainer{
         }
 
         if agent.buffer.len() >= self.batch_size {
-                let (q_loss,r_loss) = self.train_step(agent)?;
+                let (q_loss,r_loss,kl_loss) = self.train_step(agent)?;
                 total_q_loss += q_loss;
                 total_r_loss += r_loss;
+                total_kl_loss += kl_loss;
                 steps += 1;
         }
 
 
-        Ok(if steps >0 {(total_q_loss/steps as f32,total_r_loss/steps as f32,total_reward)} else {(0.0,0.0,total_reward)})
+        Ok(if steps >0 {(total_q_loss/steps as f32,total_r_loss/steps as f32,total_kl_loss/steps as f32,total_reward)} else {(0.0,0.0,0.0,total_reward)})
     }
 
     pub fn train(&mut self,agent:&mut DRNAgent,env:&mut SevensEnv,num_episodes:usize) -> Result<()> {
@@ -446,22 +448,26 @@ impl DRNTrainer{
         let mut reward_history = Vec::new();
         let mut total_q_loss_sum = 0.0; 
         let mut total_r_loss_sum = 0.0;
+        let mut total_kl_loss_sum = 0.0;
 
         for episode in 1..=num_episodes {
-            let (q_loss,r_loss,episode_reward) = self.run_episode(agent,env)?;
+            let (q_loss,r_loss,kl_loss,episode_reward) = self.run_episode(agent,env)?;
             reward_history.push(episode_reward);
             total_q_loss_sum += q_loss;
             total_r_loss_sum += r_loss;
-            
+            total_kl_loss_sum += kl_loss;
+
             if episode % 100 == 0 {
                 let avg_reward:f32 = reward_history.iter().rev().take(100).sum::<f32>()/100.0;
                 let avg_q_loss:f32 = total_q_loss_sum/100.0;
                 let avg_r_loss:f32 = total_r_loss_sum/100.0;
+                let avg_kl_loss:f32 = total_kl_loss_sum/100.0;
                 let current_lr = self.scheduler.get_lr();
-                println!("Episode :{:>5},Ave_Reward:{:>7.2}, Ave_Q_Loss:{:>8.4},Ave_R_Loss:{:>8.4}, lr:{:>8.2e}"
-                ,episode,avg_reward,avg_q_loss,avg_r_loss,current_lr);
+                println!("Episode :{:>5},Ave_Reward:{:>7.2}, Ave_Q_Loss:{:>8.4},Ave_R_Loss:{:>8.4}, Ave_KL_Loss:{:>8.4}, lr:{:>8.2e}"
+                ,episode,avg_reward,avg_q_loss,avg_r_loss,avg_kl_loss,current_lr);
                 total_q_loss_sum = 0.0;
                 total_r_loss_sum = 0.0;
+                total_kl_loss_sum = 0.0;
                 if reward_history.len() > 1000 {
                     reward_history.drain(0..reward_history.len()-500);
                 }
@@ -479,20 +485,33 @@ impl DRNTrainer{
                     agent.copy_weights_to(opp_agent)?;
                     
                     opp_agent.set_lambda(0.0);
+                    opp_agent.epsilon = 0.0;
                     println!("Opponent updated at episode {}",episode);
                 } else {
                     let mut new_opp_agent = DRNAgent::new(100,1);
                     agent.copy_weights_to(&mut new_opp_agent)?;
                     
                     new_opp_agent.set_lambda(0.0);
+                    new_opp_agent.epsilon = 0.0;
                     env.opponent = Opponent::DRN(new_opp_agent);
                     println!("Opponent switched to new agent");
                 }
             }
+
+            if episode as f32 == 0.2 * num_episodes as f32 {
+                agent.set_beta(0.02);
+            } else if episode as f32 == 0.4 * num_episodes as f32 {
+                agent.set_beta(0.04);
+            } else if episode as f32 == 0.6 * num_episodes as f32 {
+                agent.set_beta(0.06);
+            } else if episode as f32 == 0.8 * num_episodes as f32 {
+                agent.set_beta(0.1);
+            }
         }
 
-        
-        
+        let final_model_path = format!("{}/{}_final_reg.safetensors",self.save_dir,self.agent_name);
+        agent.save_target_regret(&final_model_path)?;
+
         Ok(())
 
     }

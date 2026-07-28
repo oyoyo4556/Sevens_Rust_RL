@@ -2,7 +2,9 @@ use crate::env::{PASS_ACTION, RawState};
 use std::cell::RefCell;
 use candle_core::{Device,Result,Tensor};
 use candle_nn::{AdamW,Optimizer,ParamsAdamW,VarBuilder,VarMap};
-use std::collections::VecDeque;
+use std::collections::{HashMap,VecDeque};
+use std::path::Path;
+use rand::seq::IndexedRandom;
 use rand::distr::Distribution;
 use rand::distr::weighted::WeightedIndex;
 use crate::rnet::{DuelingQNet,RNet};
@@ -27,6 +29,10 @@ pub struct DRNAgent {
     n_step: usize,
     pub lambda:f64,
     temp:f64,
+    pub beta:f64,
+    pub epsilon:f64,
+    epsilon_decay:f64,
+    epsilon_min:f64,
     processor:Processor,
     action_buffer:RefCell<Vec<u8>>,
     weights_buffer:RefCell<Vec<f32>>,
@@ -90,7 +96,11 @@ impl DRNAgent {
             n_step_buffer:VecDeque::with_capacity(n_step),
             n_step, 
             lambda:0.0,
-            temp:0.01,
+            temp:0.05,
+            beta:0.01,
+            epsilon:1.0,
+            epsilon_decay:0.995,
+            epsilon_min:0.01,
             processor,
             action_buffer:RefCell::new(Vec::with_capacity(53)),
             weights_buffer:RefCell::new(Vec::with_capacity(53)),
@@ -109,6 +119,16 @@ impl DRNAgent {
         let mask_tensor = Tensor::from_slice(&state.legal_actions_mask, (1, 53), &self.device)?;
 
         if self.lambda == 0.0 {
+            if rand::Rng::random_bool(&mut rng,self.epsilon) {
+                let mut legals = Vec::new();
+                for (i,&m) in state.legal_actions_mask.iter().enumerate() {
+                    if m == 1.0 {legals.push(i as u8)}
+                }
+                return Ok(
+                    *legals.choose(&mut rng).ok_or(candle_core::Error::Msg("No legal actions".to_string()))?
+                );
+            }
+
             let q_values = self.policy_net.forward(&state_tensor,&mask_tensor)?;
             let q_vec = q_values.flatten_all()?.to_vec1::<f32>()?;
             let mut max_q = f32::NEG_INFINITY;
@@ -213,9 +233,9 @@ impl DRNAgent {
         }
     }
 
-    pub fn update(&mut self,batch_size:usize) -> Result<(f32,f32)> {
+    pub fn update(&mut self,batch_size:usize) -> Result<(f32,f32,f32)> {
         if self.buffer.len() < batch_size{
-            return Ok((0.0,0.0));
+            return Ok((0.0,0.0,0.0));
         }
 
         let batch = self.buffer.sample(batch_size) ;
@@ -247,11 +267,16 @@ impl DRNAgent {
 
         q_opt.backward_step(&q_loss)?;
 
+        if self.epsilon > self.epsilon_min {
+            self.epsilon *= self.epsilon_decay;
+        }
+
         //=============================================
         // DRN / RNetの更新
         //=============================================
 
         let mut r_loss_val = 0.0;
+        let mut kl_loss_val = 0.0;
 
         if self.lambda > 0.0 {
 
@@ -275,17 +300,40 @@ impl DRNAgent {
 
             //(D)Rのtargetの計算
             let target_r = min_next_r.broadcast_mul(&next_gammas_t)?.broadcast_mul(&not_done)?.broadcast_add(&immediate_regret)?;
-            let r_loss = candle_nn::loss::huber(&current_r,&target_r,1.0)?;
+            let base_r_loss = candle_nn::loss::huber(&current_r,&target_r,1.0)?;
+
+            //=============================================
+            // KLダイバージェンス正則化の計算 
+            //=============================================
+            // (E) 現在の方策 (Q) の対数確率 log_pi_current を計算
+            let masked_r_current = r_values.add(&current_neg_inf)?;
+            let log_pi_current = candle_nn::ops::log_softmax(&masked_r_current, 1)?;
+
+            // (F) ターゲット方策の確率分布 pi_target を計算 (勾配は切る)
+            let old_r_target_current = self.target_regret_net.forward(&states_t)?;
+            let masked_r_target = old_r_target_current.add(&current_neg_inf)?;
+            let pi_target = candle_nn::ops::softmax(&masked_r_target, 1)?.detach();
+            let log_pi_target = candle_nn::ops::log_softmax(&masked_r_target, 1)?.detach();
+
+            // (G) KL = sum( P * (logP - logQ) ) の計算
+            let kl_element = pi_target.broadcast_mul(&log_pi_target.sub(&log_pi_current)?)?;
+            let kl_loss = kl_element.sum_keepdim(1)?.mean_all()?; // バッチ全体で平均化
+
+            // (H) トータルのLossに「加算」する (self.beta は正則化の強度ハイパラ)
+            let total_r_loss = base_r_loss.add(&kl_loss.affine(self.beta, 0.0)?)?;
+
+            //=============================================
 
             let mut reg_opt = self.reg_optimizer.borrow_mut();
-            reg_opt.backward_step(&r_loss)?;
+            reg_opt.backward_step(&total_r_loss)?;
 
-            r_loss_val = r_loss.to_scalar::<f32>()?;
+            r_loss_val = base_r_loss.to_scalar::<f32>()?;
+            kl_loss_val = kl_loss.to_scalar::<f32>()?;
 
         }
         
 
-        Ok((q_loss.to_scalar::<f32>()?,r_loss_val))
+        Ok((q_loss.to_scalar::<f32>()?,r_loss_val,kl_loss_val))
 
 
 
@@ -375,6 +423,48 @@ impl DRNAgent {
         Ok(())
     }
 
+    //target_regret の重みだけを保存するメソッド
+    pub fn save_target_regret<P: AsRef<Path>>(&self, path: P) -> Result<()> {
+        let all_vars = self.varmap.data().lock()
+            .map_err(|e| candle_core::Error::Msg(e.to_string()))?;
+
+        // target_regret から始まるテンソルだけを抽出してHashMapに詰める
+        let mut target_regret_tensors = HashMap::new();
+        for (name, var) in all_vars.iter() {
+            if name.starts_with("target_regret.") {
+                // safetensorsに保存するために、Varから内包するTensorを取り出す
+                target_regret_tensors.insert(name.clone(), var.as_tensor().clone());
+            }
+        }
+        drop(all_vars);
+
+        // ファイルへ保存
+        candle_core::safetensors::save(&target_regret_tensors, path)?;
+        println!("Successfully saved target_regret weights.");
+        Ok(())
+    }
+
+    /// 2. ファイルから target_regret の重みだけをロードして復元するメソッド
+    pub fn load_target_regret<P: AsRef<Path>>(&self, path: P) -> Result<()> {
+        // ファイルからテンソルマップを読み込む（デバイスは現在のエージェントのものに合わせる）
+        let loaded_tensors = candle_core::safetensors::load(path, &self.device)?;
+
+        let all_vars = self.varmap.data().lock()
+            .map_err(|e| candle_core::Error::Msg(e.to_string()))?;
+
+        for (name, tensor) in loaded_tensors.iter() {
+            if let Some(var) = all_vars.get(name) {
+                var.set(tensor)?;
+            } else {
+                println!("Warning: Variable {} found in file but not in VarMap", name);
+            }
+        }
+        
+        drop(all_vars); 
+        println!("Successfully loaded target_regret weights.");
+        Ok(())
+    }
+
     pub fn set_qnet_learning_rate(&mut self,lr:f64) {
         self.q_optimizer.borrow_mut().set_learning_rate(lr);
     }
@@ -411,6 +501,11 @@ impl DRNAgent {
         self.lambda = new_lambda.min(1.0)
     }
 
+    pub fn set_beta(&mut self,new_beta:f64) {
+        self.beta = new_beta.max(0.0);
+        println!("Set new beta to {:.4}", self.beta);
+    }
+
     pub fn debug_print_values(&self,state:&RawState,player_id:&usize) -> Result<()> {
         let mut buf = self.processor.infer_buf.borrow_mut();
         buf.clear();
@@ -427,7 +522,7 @@ impl DRNAgent {
         let r_vec = reg_values.squeeze(0)?.to_vec1::<f32>()?;
         let mask_vec = mask_t.squeeze(0)?.to_vec1::<f32>()?;
 
-        println!("\n  [ 🧠 DRN 脳内評価値一覧 (lambda: {:.2}) ]", self.lambda);
+        println!("\n  [ 🧠 DRN 脳内評価値一覧 (lambda: {:.2}, beta: {:.2}) ]", self.lambda, self.beta);
         println!("  ---------------------------------------------------------------------");
         println!("    行動     |  合法  |   Q値 (報酬期待)  |  R値 (後悔/詰み) |  統合価値 ((1-λ)Q - λR)");
         println!("  ---------------------------------------------------------------------");

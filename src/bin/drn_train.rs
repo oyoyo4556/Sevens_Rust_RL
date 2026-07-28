@@ -19,11 +19,11 @@ fn main(){
 
     let batch_size = 128;
     let tau = 0.005;
-    let save_interval = 10000;
-    let num_episodes = 100_000;
-    let agent_name = "drn_v1.1.2".to_string();
+    let save_interval = 20000;
+    let num_episodes = 160_000;
+    let agent_name = "drn_v1.2.0".to_string();
 
-    let mut agent = DRNAgent::new(100_000,1);//capacityを大きくし過ぎると解析用のbufferファイルが大きくなります
+    let mut agent = DRNAgent::new(100_000,1);
     let opp_agent = RandomAgent::new();
     //agent.copy_weights_to(&mut opp_agent).expect("failed copy_weight to opponent!");
     //opp_agent.epsilon = 0.0;
