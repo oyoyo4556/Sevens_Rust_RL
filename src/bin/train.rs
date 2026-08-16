@@ -13,16 +13,16 @@ fn main(){
 
     let eta_max = 1e-4;
     let eta_min = 1e-5;
-    let t_0 = 6000;
-    let t_mult = 2;
+    let t_0 = 10000;
+    let t_mult = 1;
 
-    let batch_size = 64;
+    let batch_size = 256;
     let tau = 0.005;
-    let save_interval = 5000;
-    let num_episodes = 100_000;
-    let agent_name = "dqn_v1.4.0".to_string();
+    let save_interval = 20000;
+    let num_episodes = 200_000;
+    let agent_name = "dqn_v1.4.1".to_string();
 
-    let mut agent = MainAgent::new(100_000,3);
+    let mut agent = MainAgent::new(200_000,1);
     let opp_agent = RandomAgent::new();
     //agent.copy_weights_to(&mut opp_agent).expect("failed copy_weight to opponent!");
     //opp_agent.epsilon = 0.0;
@@ -40,7 +40,7 @@ fn main(){
         agent_name,
     );
 
-    //agent.load("checkpoints/dqn_v1.3.0_cycle3.safetensors").expect("Failed to load model.check the path!");
+    agent.load("checkpoints/dqn_v1.4.1_cycle1.safetensors").expect("Failed to load model.check the path!");
 
     println!("========================================================");
     println!("Starting training for {} episodes",num_episodes);
