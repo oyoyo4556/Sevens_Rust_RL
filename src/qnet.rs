@@ -15,15 +15,14 @@ impl ResidualBlock {
         Ok(Self{fc1,ln1,fc2})
     }
 
-    pub fn forward(&self,x:&Tensor) -> Result<Tensor> {
-        let residual = x;
-
-        let mut out = self.ln1.forward(x)?;
-        out = self.fc1.forward(&out)?;
-        out = out.relu()?;
-        out = self.fc2.forward(&out)?;
-
-        out.add(residual)
+    pub fn forward(&self, x: &Tensor) -> Result<Tensor> {
+    // 入力を正規化 (Pre-LN)
+    let h = self.ln1.forward(x)?;
+    // 特徴量の抽出 (dim -> 2*dim -> dim)
+    let h = self.fc1.forward(&h)?.relu()?;
+    let h = self.fc2.forward(&h)?;
+    // 残差結合
+    x.add(&h)
     }
 
 }
