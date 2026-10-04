@@ -9,3 +9,6 @@ pub mod lr_scheduler;
 pub mod trainer;
 pub mod sumtree;
 pub mod rnet;
+pub mod rnet_eps;
+pub mod qhoeloss;
+pub mod ppo;

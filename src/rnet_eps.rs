@@ -14,15 +14,14 @@ impl ResidualBlock {
         Ok(Self{fc1,ln1,fc2})
     }
 
-    pub fn forward(&self,x:&Tensor) -> Result<Tensor> {
-        let residual = x;
-
-        let mut out = self.ln1.forward(x)?;
-        out = self.fc1.forward(&out)?;
-        out = out.relu()?;
-        out = self.fc2.forward(&out)?;
-
-        out.add(residual)
+    pub fn forward(&self, x: &Tensor) -> Result<Tensor> {
+    // 入力を正規化 (Pre-LN)
+    let h = self.ln1.forward(x)?;
+    // 特徴量の抽出 (dim -> 2*dim -> dim)
+    let h = self.fc1.forward(&h)?.relu()?;
+    let h = self.fc2.forward(&h)?;
+    // 残差結合
+    x.add(&h)
     }
 
 }
@@ -94,18 +93,29 @@ pub fn smooth_relu(x: &Tensor, a: f64) -> Result<Tensor> {
     sum.affine(0.5, 0.0) 
 }
 
-pub struct RNet {
+pub fn stable_softplus(x: &Tensor) -> Result<Tensor> {
+    let max_x_0 = x.relu()?;
+    let abs_x = x.abs()?;
+    let neg_abs_x = abs_x.neg()?;
+    let exp_neg_abs = neg_abs_x.exp()?;
+    let plus_one = exp_neg_abs.affine(1.0, 1.0)?;
+    let log_term = plus_one.log()?;
+
+    max_x_0.add(&log_term)
+}
+
+pub struct RNetEPS {
     input_layer:Linear,
     res1:ResidualBlock,
     final_ln:LayerNorm,
     buffer_layer:Linear,
     regret:Linear,
-    fcw:Linear,
     fcr:Linear,
-    weight:Linear,
+    fce:Linear,
+    eps:Linear,
 }
 
-impl RNet{
+impl RNetEPS{
     pub fn new(state_dim:usize,hidden_dim:usize,action_dim:usize,vb: VarBuilder) -> Result<Self> {
         
         let hidden2_dim = if hidden_dim % 2 == 0 {hidden_dim / 2} else {(hidden_dim + 1 )/2};
@@ -115,12 +125,12 @@ impl RNet{
         let final_ln = candle_nn::layer_norm(hidden_dim,candle_nn::LayerNormConfig::default(),vb.pp("final_ln"))?;
         let buffer_layer = linear(hidden_dim,hidden2_dim,vb.pp("buffer_layer"))?;
         let regret = customlinear(hidden2_dim, action_dim, 3.0, vb.pp("regret"))?;
-        let fcw = linear(hidden2_dim, hidden2_dim, vb.pp("fcw"))?;
         let fcr = linear(hidden2_dim, hidden2_dim, vb.pp("fcr"))?;
-        let weight = customlinear(hidden2_dim, action_dim, 3.0, vb.pp("weight"))?;
+        let fce = linear(hidden2_dim, hidden2_dim, vb.pp("fce"))?;
+        let eps = linear(hidden2_dim, action_dim, vb.pp("eps"))?;
 
 
-        Ok(Self {input_layer,res1,final_ln,buffer_layer,regret,fcw,fcr,weight})
+        Ok(Self {input_layer,res1,final_ln,buffer_layer,regret,fcr,fce,eps})
     }
 
     pub fn forward(&self,x:&Tensor) -> Result<(Tensor,Tensor)> {
@@ -134,8 +144,8 @@ impl RNet{
         let r = self.fcr.forward(&x)?.relu()?;
         let r = smooth_relu(&self.regret.forward(&r)?, 0.0001)?; 
 
-        let w = self.fcw.forward(&x)?.relu()?;
-        let w = smooth_relu(&self.weight.forward(&w)?, 0.0001)?; 
-        Ok((r,w))
+        let e = self.fce.forward(&x)?.relu()?;
+        let e = stable_softplus(&self.eps.forward(&e)?)?;
+        Ok((r,e))
     }
 }

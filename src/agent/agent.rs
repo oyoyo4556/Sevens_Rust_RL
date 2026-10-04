@@ -2,6 +2,7 @@
 use crate::agent::per_agent::PERDQNAgent;
 use crate::agent::drn_agent::DRNAgent;
 use crate::agent::drn_eps_agent::DRNEPSAgent;
+use crate::agent::ppo_agent::PPOAgent;
 use crate::env::{RawState};
 use rand::seq::IndexedRandom;
 use std::cell::RefCell;
@@ -39,6 +40,7 @@ pub enum Opponent {
     PER(PERDQNAgent),
     DRN(DRNAgent),
     DRNEPS(DRNEPSAgent),
+    PPO(PPOAgent)
 }
 
 pub type AgentResult<T> = std::result::Result<T,String>;
@@ -54,6 +56,7 @@ impl Agent for Opponent {
             Opponent::PER(a) => a.select_action(state,player_id),
             Opponent::DRN(a) => a.select_action(state,player_id),
             Opponent::DRNEPS(a) => a.select_action(state,player_id),
+            Opponent::PPO(a) => a.select_action(state,player_id),
         }
     }
 }
@@ -116,7 +119,7 @@ impl MainAgent {
             target_net,
             optimizer:RefCell::new(optimizer),
             buffer: ReplayBuffer::new(capacity),
-            gamma: 0.99,
+            gamma: 0.999,
             epsilon: 0.8,
             epsilon_min: 0.01,
             epsilon_decay: 0.99995,

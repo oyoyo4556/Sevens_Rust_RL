@@ -20,7 +20,7 @@ fn main(){
     let tau = 0.005;
     let save_interval = 20000;
     let num_episodes = 200_000;
-    let agent_name = "dqn_v1.4.1".to_string();
+    let agent_name = "dqn_v1.4.2".to_string();
 
     let mut agent = MainAgent::new(200_000,1);
     let opp_agent = RandomAgent::new();
@@ -40,7 +40,7 @@ fn main(){
         agent_name,
     );
 
-    agent.load("checkpoints/dqn_v1.4.1_cycle1.safetensors").expect("Failed to load model.check the path!");
+    //agent.load("checkpoints/dqn_v1.4.1_cycle1.safetensors").expect("Failed to load model.check the path!");
 
     println!("========================================================");
     println!("Starting training for {} episodes",num_episodes);

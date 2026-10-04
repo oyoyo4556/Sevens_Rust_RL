@@ -7,20 +7,21 @@ use std::path::Path;
 use rand::seq::IndexedRandom;
 use rand::distr::Distribution;
 use rand::distr::weighted::WeightedIndex;
-use crate::rnet::{DuelingQNet,RNet};
+use crate::rnet_eps::{DuelingQNet,RNetEPS};
 use crate::buffer::ReplayBuffer;
 use crate::processor::Processor;
 use crate::common::{Experience, TRAIN_AGENT_ID,INPUT_STATE_DIM};
 use crate::agent::agent::{Agent,AgentResult};
+use crate::qhoeloss::qhoe_loss;
 
 
-pub struct DRNAgent {
+pub struct DRNEPSAgent {
     device:Device,
     pub varmap:VarMap,
     pub policy_net:DuelingQNet,
     pub target_net:DuelingQNet,
-    pub regret_net:RNet,
-    pub target_regret_net:RNet,
+    pub regret_net:RNetEPS,
+    pub target_regret_net:RNetEPS,
     q_optimizer:RefCell<AdamW>,
     reg_optimizer:RefCell<AdamW>,
     pub buffer:ReplayBuffer,
@@ -31,15 +32,18 @@ pub struct DRNAgent {
     pub temp:f64,
     pub beta:f64,
     pub epsilon:f64,
-    pub eta:f64,
+    pub delta:f64,
     epsilon_decay:f64,
     epsilon_min:f64,
     processor:Processor,
     action_buffer:RefCell<Vec<u8>>,
     weights_buffer:RefCell<Vec<f32>>,
+    pub loss_temp:f64,
+    pub loss_epsmin:f64,
+    pub loss_epsmax:f64,
 }
 
-impl DRNAgent {
+impl DRNEPSAgent {
     pub fn new(capacity:usize,n_step:usize) -> Self{
         let device = Device::cuda_if_available(0).unwrap_or(Device::Cpu);
         let varmap = VarMap::new();
@@ -47,8 +51,8 @@ impl DRNAgent {
         candle_core::DType::F32,&device);
         let policy_net = DuelingQNet::new(INPUT_STATE_DIM,512,53,vb.pp("policy")).unwrap();
         let target_net = DuelingQNet::new(INPUT_STATE_DIM,512,53,vb.pp("target")).unwrap();
-        let regret_net = RNet::new(INPUT_STATE_DIM,512,53,vb.pp("regret")).unwrap();
-        let target_regret_net = RNet::new(INPUT_STATE_DIM,512,53,vb.pp("target_regret")).unwrap();
+        let regret_net = RNetEPS::new(INPUT_STATE_DIM,512,53,vb.pp("regret")).unwrap();
+        let target_regret_net = RNetEPS::new(INPUT_STATE_DIM,512,53,vb.pp("target_regret")).unwrap();
 
         let (q_vars,reg_vars) = {
             let all_vars = varmap.data().lock().map_err(|e|candle_core::Error::Msg(e.to_string())).unwrap();
@@ -102,10 +106,13 @@ impl DRNAgent {
             epsilon:1.0,
             epsilon_decay:0.995,
             epsilon_min:0.01,
-            eta:1e6,
+            delta:1e-1,
             processor,
             action_buffer:RefCell::new(Vec::with_capacity(53)),
             weights_buffer:RefCell::new(Vec::with_capacity(53)),
+            loss_temp:0.01,
+            loss_epsmin:0.01,
+            loss_epsmax:1.0,
         }
     }
 
@@ -120,64 +127,76 @@ impl DRNAgent {
         let state_tensor = Tensor::from_slice(&buf, (1, INPUT_STATE_DIM), &self.device)?;
         let mask_tensor = Tensor::from_slice(&state.legal_actions_mask, (1, 53), &self.device)?;
 
-        if self.lambda == 0.0 {
-            if rand::Rng::random_bool(&mut rng,self.epsilon) {
-                let mut legals = Vec::new();
-                for (i,&m) in state.legal_actions_mask.iter().enumerate() {
-                    if m == 1.0 {legals.push(i as u8)}
-                }
-                return Ok(
-                    *legals.choose(&mut rng).ok_or(candle_core::Error::Msg("No legal actions".to_string()))?
-                );
+        if rand::Rng::random_bool(&mut rng,self.epsilon) {
+            let mut legals = Vec::new();
+            for (i,&m) in state.legal_actions_mask.iter().enumerate() {
+                if m == 1.0 {legals.push(i as u8)}
             }
-
-            let q_values = self.policy_net.forward(&state_tensor,&mask_tensor)?;
-            let q_vec = q_values.flatten_all()?.to_vec1::<f32>()?;
-            let mut max_q = f32::NEG_INFINITY;
-            let mut best_action = None;
-
-            for (i,(&q,&m)) in q_vec.iter().zip(state.legal_actions_mask.iter()).enumerate() {
-              if m == 1.0 {
-                  if q > max_q || best_action.is_none() {
-                      max_q = q;
-                      best_action = Some(i as u8);
-                    }
-                }
-            } 
-
-            return best_action.ok_or(candle_core::Error::Msg("No legal actions".to_string()));
+            return Ok(
+                *legals.choose(&mut rng).ok_or(candle_core::Error::Msg("No legal actions".to_string()))?
+            );
         }
+
+        let q_values = self.policy_net.forward(&state_tensor,&mask_tensor)?;
+        let q_vec = q_values.flatten_all()?.to_vec1::<f32>()?;
+        let mut max_q = f32::NEG_INFINITY;
+        let mut best_action = None;
+
+        for (i,(&q,&m)) in q_vec.iter().zip(state.legal_actions_mask.iter()).enumerate() {
+            if m == 1.0 {
+                if q > max_q || best_action.is_none() {
+                  max_q = q;
+                  best_action = Some(i as u8);
+                }
+            }
+        } 
+
+        return best_action.ok_or(candle_core::Error::Msg("No legal actions".to_string()));
+    }
+        
+
+    pub fn infer_r(&self, state: &RawState, player_id: &usize) -> Result<u8> {
+
+        let mut rng = rand::rng();
+
+        let mut buf = self.processor.infer_buf.borrow_mut();
+        buf.clear();
+
+        self.processor.write_buf(&mut buf, state, *player_id, 4);// player_id:0, num_players:4
+
+        let state_tensor = Tensor::from_slice(&buf, (1, INPUT_STATE_DIM), &self.device)?;
+        let mask_tensor = Tensor::from_slice(&state.legal_actions_mask, (1, 53), &self.device)?;
         
         let q_values = self.policy_net.forward(&state_tensor, &mask_tensor)?;
-        let (reg_values,w_values) = self.regret_net.forward(&state_tensor)?;
+    
+        // RNet から (r, e) を取得
+        // r: ベースラインRegret, e: QHOE不確実性(自信)
+        let (reg_values, eps_values) = self.regret_net.forward(&state_tensor)?;
 
-        // 2.(1 - λ) * Q - λ * (R + ηw) の計算 
-        let lambda_f = self.lambda as f32;
-        let eta_f = self.eta ;
-        let w_scaled = w_values.affine(eta_f, 0.0)?;
-        let total_regret = reg_values.add(&w_scaled)?;
-        let scaled_q = q_values.affine((1.0 - lambda_f) as f64, 0.0)?;
-        let scaled_r = total_regret.affine(lambda_f as f64, 0.0)?;
+
+        // 3. 評価値 M(s,a) = (1 - λ) * Q - λ * R
+        let lambda_f = self.lambda as f64;
+        let scaled_q = q_values.affine(1.0 - lambda_f, 0.0)?;
+        let scaled_r = reg_values.affine(lambda_f, 0.0)?;
         let combined_values = scaled_q.sub(&scaled_r)?;
 
-        // 3. 合法手以外をソフトマックスから除外する
+        // 4. 合法手以外をマスクしてソフトマックスを適用
         let neg_inf_t = mask_tensor.affine(-1.0, 1.0)?.affine(-1e9f64, 0.0)?;
         let masked_combined = combined_values.add(&neg_inf_t)?;
 
-        // 4. 温度付きsoftmax。
-        let temperature = self.temp;
+        // 温度パラメータ (Temperature Scaling)
+        let temperature = self.temp as f64;
         let scaled_for_softmax = if temperature != 1.0 {
             masked_combined.affine(1.0 / temperature, 0.0)?
         } else {
             masked_combined
         };
 
-        // 5. ソフトマックス関数で確率分布に変換
+        // ソフトマックスで選択確率に変換
         let probs_tensor = candle_nn::ops::softmax(&scaled_for_softmax, 1)?;
         let probs_vec = probs_tensor.flatten_all()?.to_vec1::<f32>()?;
 
-        // 6. 確率分布（重み）に基づいてランダムサンプリング
-        // 合法手かつ確率が微小に存在するインデックスと重みを集める
+        // 5. 確率分布に基づいたサンプリング（バッファの再利用）
         let mut valid_actions = self.action_buffer.borrow_mut();
         let mut weights = self.weights_buffer.borrow_mut();
 
@@ -199,8 +218,22 @@ impl DRNAgent {
         let dist = WeightedIndex::new(weights.as_slice())
             .map_err(|e| candle_core::Error::Msg(format!("WeightedIndex error: {}", e)))?;
         let chosen_idx = dist.sample(&mut rng);
+        let chosen_action = valid_actions[chosen_idx];
 
-        Ok(valid_actions[chosen_idx])
+        // 選ばれた行動の不確実性 e (QHOE eps) をチェック
+        let eps_vec = eps_values.flatten_all()?.to_vec1::<f32>()?;
+        let chosen_eps = eps_vec[chosen_action as usize];
+
+        // ★ 自信がある（不確実性が小さい）場合は RNet で選んだ行動を返す
+        if chosen_eps >= self.delta as f32 {
+            return Ok(chosen_action);
+        }
+
+        let masked_q = q_values.add(&neg_inf_t)?;
+        let best_q_action = masked_q.argmax(1)?.squeeze(0)?.to_scalar::<u32>()? as u8;
+
+        Ok(best_q_action)
+    
     }
 
     pub fn add_experience(&mut self,state:RawState,action:u8,reward:f32,next_state:RawState,done:bool) {
@@ -238,22 +271,23 @@ impl DRNAgent {
         }
     }
 
-    pub fn update(&mut self,batch_size:usize) -> Result<(f32,f32,f32,f32)> {
+    pub fn update(&mut self,batch_size:usize) -> Result<(f32,f32,f32)> {
         if self.buffer.len() < batch_size{
-            return Ok((0.0,0.0,0.0,0.0));
+            return Ok((0.0,0.0,0.0));
         }
 
         let batch = self.buffer.sample(batch_size) ;
         let (states_t,next_states_t,masks_t,next_masks_t,actions_t,rewards_t,dones_t,next_gammas_t) 
         = self.processor.batch_to_tensors(&batch, &self.device, TRAIN_AGENT_ID, 4)?;//player_id:0,num_players:4
 
-        let actions_t =actions_t.to_dtype(candle_core::DType::U32)?; //gatherするため
+        let actions_t =actions_t.to_dtype(candle_core::DType::U32)?;// gatherするため
+        let actions_unsqueeze = actions_t.unsqueeze(1)?;// (batch, 1)
         let not_done = (dones_t.ones_like()? - &dones_t)?;
         //=============================================
         // DQN / DuelingQNetの更新
         //=============================================
         let q_values = self.policy_net.forward(&states_t,&masks_t)?;
-        let current_q = q_values.gather(&actions_t.unsqueeze(1)?,1)?.squeeze(1)?;
+        let current_q = q_values.gather(&actions_unsqueeze,1)?.squeeze(1)?;
 
         let next_q_policy = self.policy_net.forward(&next_states_t,&next_masks_t)?;
 
@@ -282,17 +316,18 @@ impl DRNAgent {
 
         let mut r_loss_val = 0.0;
         let mut kl_loss_val = 0.0;
-        let mut w_loss_val = 0.0;
 
         if self.lambda > 0.0 {
 
             //(A) 現在の予測後悔値R(s,a)の取得
-            let (r_values, w_values) = self.regret_net.forward(&states_t)?;
-            let current_r = r_values.gather(&actions_t.unsqueeze(1)?,1)?.squeeze(1)?;
+            let (r_values,e_pred) = self.regret_net.forward(&states_t)?;
+            let current_r = r_values.gather(&actions_unsqueeze,1)?.squeeze(1)?;
+            let current_e = e_pred.gather(&actions_unsqueeze, 1)?.squeeze(1)?;
 
             //(B)即時後悔の計算
+            let target_q_values = self.target_net.forward(&states_t,&masks_t)?;
             let current_neg_inf = masks_t.affine(-1.0,1.0)?.affine(-1e9f64,0.0)?;
-            let masked_current_q = q_values.detach().add(&current_neg_inf)?;
+            let masked_current_q = target_q_values.detach().add(&current_neg_inf)?;
             let max_current_q = masked_current_q.max_keepdim(1)?.squeeze(1)?;
             let immediate_regret = max_current_q.sub(&current_q.detach())?;
 
@@ -306,22 +341,7 @@ impl DRNAgent {
 
             //(D)Rのtargetの計算
             let target_r = min_next_r.broadcast_mul(&next_gammas_t)?.broadcast_mul(&not_done)?.broadcast_add(&immediate_regret)?;
-            let base_r_loss = candle_nn::loss::huber(&current_r,&target_r,0.5)?;
-
-            // =============================================
-            // w(s,a) の Target 計算と Loss
-            // Target_w(s,a) = (max_a' Q(s,a') - Q(s,a)) / (R(s,a) + eps)
-            // =============================================
-            let eps = 0.1f64; // とりあえず0.1.(R(s,a)が0のときに大きくなりすぎないようにするため)
-
-            // max_a' Q(s,a') - Q(s,a) を計算
-            let max_q_broadcast = masked_current_q.max_keepdim(1)?; // (batch, 1)
-            let q_suboptimality = max_q_broadcast.broadcast_sub(&q_values.detach())?; // (batch, 53)
-            // R(s,a) + eps を計算
-            let r_plus_eps = r_values.detach().affine(1.0, eps)?;
-            let target_w = q_suboptimality.broadcast_div(&r_plus_eps)?;
-            let w_loss = candle_nn::loss::huber(&w_values, &target_w, 0.5)?;
-            let total_r_loss = base_r_loss.add(&w_loss)?;
+            let base_r_loss = qhoe_loss(&current_r,&target_r,&current_e,self.loss_temp,self.loss_epsmin,self.loss_epsmax)?;
 
             //=============================================
             // KLダイバージェンス正則化の計算 
@@ -332,7 +352,7 @@ impl DRNAgent {
 
             // (F) ターゲット方策の確率分布 pi_target を計算 (勾配は切る)
             let (old_r_target_current, _) = self.target_regret_net.forward(&states_t)?;
-            let neg_r_target = old_r_target_current.add(&current_neg_inf)?;
+            let neg_r_target = old_r_target_current.neg()?.add(&current_neg_inf)?;
             let pi_target = candle_nn::ops::softmax(&neg_r_target, 1)?.detach();
             let log_pi_target = candle_nn::ops::log_softmax(&neg_r_target, 1)?.detach();
 
@@ -341,7 +361,7 @@ impl DRNAgent {
             let kl_loss = kl_element.sum_keepdim(1)?.mean_all()?; // バッチ全体で平均化
 
             // (H) トータルのLossに「加算」する (self.beta は正則化のハイパラ)
-            let total_r_loss = total_r_loss.add(&kl_loss.affine(self.beta, 0.0)?)?;
+            let total_r_loss = base_r_loss.add(&kl_loss.affine(self.beta, 0.0)?)?;
 
             //=============================================
 
@@ -350,12 +370,11 @@ impl DRNAgent {
 
             r_loss_val = base_r_loss.to_scalar::<f32>()?;
             kl_loss_val = kl_loss.to_scalar::<f32>()?;
-            w_loss_val = w_loss.to_scalar::<f32>()?;
 
         }
         
 
-        Ok((q_loss.to_scalar::<f32>()?,r_loss_val,kl_loss_val,w_loss_val))
+        Ok((q_loss.to_scalar::<f32>()?,r_loss_val,kl_loss_val))
 
 
 
@@ -495,7 +514,7 @@ impl DRNAgent {
         self.reg_optimizer.borrow_mut().set_learning_rate(lr);
     }
 
-    pub fn copy_weights_to(&self,other:&mut DRNAgent) -> Result<()> {
+    pub fn copy_weights_to(&self,other:&mut DRNEPSAgent) -> Result<()> {
         //ここでも同様に、全ての更新を一時的にVecに溜めて、ロックを明示的にdropしてから更新する仕様とした。
         let updates = {
             let src_vars = self.varmap.data().lock().map_err(|e| candle_core::Error::Msg(e.to_string()))?;
@@ -538,25 +557,25 @@ impl DRNAgent {
         let mask_t = Tensor::from_slice(&state.legal_actions_mask,(1,53),&self.device)?;
 
         let q_values = self.policy_net.forward(&state_t,&mask_t)?;
-        let (reg_values, w_values) = self.regret_net.forward(&state_t)?;
+        let (reg_values,e_pred) = self.regret_net.forward(&state_t)?;
 
         let q_vec = q_values.squeeze(0)?.to_vec1::<f32>()?;
         let r_vec = reg_values.squeeze(0)?.to_vec1::<f32>()?;
-        let w_vec = w_values.squeeze(0)?.to_vec1::<f32>()?;
+        let e_vec = e_pred.squeeze(0)?.to_vec1::<f32>()?;
         let mask_vec = mask_t.squeeze(0)?.to_vec1::<f32>()?;
 
-        println!("\n  [ 🧠 DRN 評価値一覧 (lambda: {:.2}, beta: {:.2}) ]", self.lambda, self.beta);
+        println!("\n  [ 🧠 DRN 評価値一覧 (lambda: {:.2}, beta: {:.2},temp: {},delta: {}) ]", self.lambda, self.beta, self.temp, self.delta);
         println!("  ---------------------------------------------------------------------");
-        println!("    行動     |  合法  |   Q値 (報酬期待)  |  R値 (後悔/詰み) |  W値 (重み) |  統合価値 ((1-λ)Q - λR)");
+        println!("    行動     |  合法  |   Q値 (報酬期待)  |  R値 (後悔/詰み) |  eps (自信) | 統合価値 ");
         println!("  ---------------------------------------------------------------------");
 
         for i in 0..53 {
             let is_legal = mask_vec[i] > 0.0;
             let q_val = q_vec[i];
             let r_val = r_vec[i];
-            let w_val = w_vec[i];
+            let e_val = e_vec[i];
             let lambda_f = self.lambda as f32;
-            let combined = (1.0 - lambda_f) * q_val - lambda_f * r_val;
+            let combined = (1.0 - lambda_f) * q_val - lambda_f * (r_val);
 
             // パスかカードかで名前を変える
             let action_name = if i == PASS_ACTION as usize {
@@ -571,15 +590,15 @@ impl DRNAgent {
                 let legal_marker = if is_legal { "✅ YES" } else { "❌ NO " };
                 
                 // 実際に argmax で選ばれる最善手候補には強調マークをつける
-                let highlight = if is_legal && i == self.calc_best_action_id(&q_vec, &r_vec, &mask_vec) {
+                let highlight = if is_legal && i == self.calc_best_action_id(&q_vec, &r_vec,&mask_vec) {
                     "★ 最善手"
                 } else {
                     ""
                 };
 
                 println!(
-                    "    {} |  {} |    {:>14.4} |    {:>13.4} | {}  |   {:>16.4}  {}",
-                    action_name, legal_marker, q_val, r_val, w_val, combined, highlight
+                    "    {} |  {} |    {:>10.4} |    {:>10.4} |  {:>10.4e}  | {:>3.2}  {}",
+                    action_name, legal_marker, q_val, r_val, e_val, combined, highlight
                 );
             }
         }
@@ -595,7 +614,7 @@ impl DRNAgent {
         for i in 0..53 {
             if mask[i] > 0.0 {
                 // 修正後
-                let val = (1.0 - lambda_f) * q[i] - lambda_f * r[i];
+                let val = (1.0 - lambda_f) * q[i] - lambda_f * (r[i]);
                 if val > max_val {
                     max_val = val;
                     best_idx = i;
@@ -607,8 +626,12 @@ impl DRNAgent {
 
 }
 
-impl Agent for DRNAgent {
+impl Agent for DRNEPSAgent {
     fn select_action(&self,state:&RawState,player_id:&usize) -> AgentResult<u8> {
-        self.infer_q(state,&player_id).map_err(|e| e.to_string())
+        if self.lambda == 0.0 {
+            self.infer_q(state,&player_id).map_err(|e| e.to_string())
+        } else {
+            self.infer_r(state,&player_id).map_err(|e| e.to_string())
+        }
     }
 }

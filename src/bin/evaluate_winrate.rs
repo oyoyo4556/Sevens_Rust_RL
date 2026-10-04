@@ -1,9 +1,9 @@
 use std::fs;
 use std::path::Path;
 use sevens::env::{SevensEnv};
-use sevens::agent::agent::MainAgent;
+use sevens::agent::drn_eps_agent::DRNEPSAgent;
 use sevens::agent::agent::{RandomAgent,Opponent};
-use sevens::trainer::Trainer;
+use sevens::trainer::DRNEPSTrainer;
 
 fn main(){
     let save_dir ="checkpoints".to_string();
@@ -20,30 +20,32 @@ fn main(){
     let batch_size = 64;
     let tau = 1.0;
     let save_interval = 3000;
-    let num_episodes = 100000;
-    let agent_name = "dqn_v1.4.1".to_string();
+    let num_episodes = 10000;
+    let agent_name = "drneps_v1.1.0".to_string();
 
-    let mut agent = MainAgent::new(100_000,3);
-    agent.load("checkpoints/dqn_v1.4.1_cycle18.safetensors").expect("Failed to load model.check the path!");
-    //agent.set_lambda(1.0);
+    let mut agent = DRNEPSAgent::new(100_000,3);
+    agent.load("checkpoints/drneps_v1.1.0_ep160000.safetensors").expect("Failed to load model.check the path!");
+    agent.set_lambda(1.0);
     agent.epsilon = 0.0;
+    agent.temp = 0.05;
+    agent.delta = 1e-7;
 
     let opponent = Opponent::Random(RandomAgent::new());
-    //let mut opponent = DRNAgent::new(100,1);
+    //let mut opponent = DRNEPSAgent::new(100,1);
     //agent.copy_weights_to(&mut opponent).expect("failed copy_weight to opponent!");
     //opponent.set_lambda(0.0);
     //opponent.epsilon = 0.0;
-    //let opponent = Opponent::DRN(opponent);
+    //let opponent = Opponent::DRNEPS(opponent);
     let mut env = SevensEnv::new(4,0,opponent);
-    //println!("Agent lambda :{}",agent.lambda);
-    //println!("Agent eta: {}",agent.eta);
-    //println!("Agent temp: {}",agent.temp);
-    if let Opponent::DRN(ref mut opp_agent) = env.opponent  {
-        println!("Opponet is DRNAgent with lambda :{}",opp_agent.lambda);
+    println!("Agent lambda :{}",agent.lambda);
+    println!("Agent delta: {}",agent.delta);
+    println!("Agent temp: {}",agent.temp);
+    if let Opponent::DRNEPS(ref mut opp_agent) = env.opponent  {
+        println!("Opponet is DRNEPSAgent with lambda :{}",opp_agent.lambda);
     } else {
         println!("Opponent is RandomAgent");
     }
-    let mut trainer = Trainer::new(
+    let mut trainer = DRNEPSTrainer::new(
         eta_max,
         eta_min,
         t_0,
@@ -55,6 +57,6 @@ fn main(){
         agent_name,
     );
 
-    trainer.vs_random(&mut agent,&mut env,num_episodes).unwrap();
+    trainer.drneps_vs(&mut agent,&mut env,num_episodes).unwrap();
 }
 

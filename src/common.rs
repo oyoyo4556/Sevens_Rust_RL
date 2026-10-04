@@ -12,3 +12,14 @@ pub struct Experience {
 
 pub const TRAIN_AGENT_ID:usize = 0;
 pub const INPUT_STATE_DIM:usize = 233;
+
+#[derive(Clone)]
+pub struct PPOExperience {
+    pub state: RawState,
+    pub action: u8,
+    pub log_prob: f32, 
+    pub value: f32,
+    pub reward: f32,
+    pub next_state: RawState,
+    pub done: bool,
+}

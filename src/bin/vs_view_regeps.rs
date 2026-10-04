@@ -1,18 +1,18 @@
 use sevens::card::Card;
 use sevens::env::{SevensEnv,PASS_ACTION};
-use sevens::agent::agent::{RandomAgent, Opponent};
-use sevens::agent::drn_agent::DRNAgent;
+use sevens::agent::agent::{RandomAgent, Opponent,Agent};
+use sevens::agent::drn_eps_agent::DRNEPSAgent;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // --- 初期設定 ---
     let num_players = 4;
     let agent_id = 0;
     //let main_agent = RandomAgent::new();//デバッグ用
-    let mut main_agent = DRNAgent::new(100, 1);
-    main_agent.load("checkpoints/drn_v1.3.0_ep160000.safetensors").expect("Failed to load model.check the path!");
+    let mut main_agent = DRNEPSAgent::new(100, 1);
+    main_agent.load("checkpoints/drneps_v1.1.0_cycle13.safetensors").expect("Failed to load model.check the path!");
     main_agent.set_lambda(1.0); 
-    main_agent.eta = 100000.0;
-    main_agent.temp = 0.05;
+    main_agent.delta = 1e-7;
+    main_agent.temp = 0.01;
 
     let opponent = Opponent::Random(RandomAgent::new());
     let mut env = SevensEnv::new(num_players, agent_id, opponent);
@@ -53,7 +53,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             // ========================================================
             main_agent.debug_print_values(&state,&current_p)?; // ← ここでQとRを可視化！
 
-            let act = main_agent.infer_q(&state, &env.agent_id)?;
+            let act = main_agent.select_action(&state, &env.agent_id)?;
             println!(">> 🤖 AI(あなた)の行動選択: 【 {} 】", format_action_visual(act));
             act
         } else {
